@@ -15,7 +15,7 @@
   <!-- Babel Standalone for JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- Google Fonts: Cairo, Tajawal & Amiri (Word Document Traditional Arabic Font) -->
+  <!-- Google Fonts: Cairo, Tajawal & Amiri -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Cairo:wght@300;400;600;700;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -56,8 +56,6 @@
       font-family: 'Amiri', 'Cairo', 'Tajawal', 'Traditional Arabic', serif;
       scroll-behavior: smooth;
     }
-    
-    /* Document View Card Styling */
     .word-doc-page {
       background-color: #ffffff;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
@@ -67,45 +65,27 @@
       background-color: #0f172a;
       border-color: #1e293b;
     }
-    
-    /* Custom Scrollbar */
-    ::-webkit-scrollbar {
-      width: 8px;
-    }
-    ::-webkit-scrollbar-track {
-      background: #f1f5f9;
-    }
-    .dark ::-webkit-scrollbar-track {
-      background: #0f172a;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: #dc2626;
-      border-radius: 4px;
-    }
-    
-    /* Card Flip Animation */
-    .perspective-1000 {
-      perspective: 1000px;
-    }
-    .transform-style-3d {
-      transform-style: preserve-3d;
-    }
-    .backface-hidden {
-      backface-visibility: hidden;
-    }
-    .rotate-y-180 {
-      transform: rotateY(180deg);
-    }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    .dark ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #dc2626; border-radius: 4px; }
+    .perspective-1000 { perspective: 1000px; }
+    .transform-style-3d { transform-style: preserve-3d; }
+    .backface-hidden { backface-visibility: hidden; }
+    .rotate-y-180 { transform: rotateY(180deg); }
   </style>
 </head>
 <body class="bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-300 font-amiri text-lg">
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useRef } = React;
 
-    // --- DATA STORE WITH ALL DETAILS & ILLUSTRATION ASSETS ---
-    const scoutData = {
+    const STORAGE_KEY_SCOUT = "scout_library_data_v4";
+    const STORAGE_KEY_FLASHCARDS = "scout_library_flashcards_v4";
+
+    // --- FULL ORIGINAL SCOUT DATA STORE ---
+    const initialScoutData = {
       general: {
         id: "general",
         title: "المجموعة الأولى: معلومات عامة",
@@ -513,8 +493,8 @@
       }
     };
 
-    // --- FLASHCARDS & QUIZ DATA ---
-    const flashcardsData = [
+    // --- FULL ORIGINAL FLASHCARDS DATA ---
+    const initialFlashcardsData = [
       { id: 1, cat: "general", q: "متى تأسست الحركة الكشفية العالمية وعلى يد من؟", a: "تأسست عام 1907 على يد اللورد روبرت بادن باول عقب مخيم جزيرة براونسي." },
       { id: 2, cat: "general", q: "ما هو تاريخ تأسيس كشافة الجامعة الأميركية (جمعية الكشاف اللبناني) برقم العلم والخبر؟", a: "تأسست بتاريخ 27 شباط 1935 بموجب العلم والخبر رقم 398." },
       { id: 3, cat: "general", q: "ما هي أولى درجات السعادة حسب وصية بادن بأول الأخيرة؟", a: "أن يتمتع الإنسان بصحة جيدة وجسم قوي منذ الصغر ليستطيع الخدمة والاستمتاع بالحياة." },
@@ -537,6 +517,25 @@
 
     // --- MAIN APP COMPONENT ---
     function App() {
+      // LocalStorage state initialization
+      const [scoutData, setScoutData] = useState(() => {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY_SCOUT);
+          return saved ? JSON.parse(saved) : initialScoutData;
+        } catch (e) {
+          return initialScoutData;
+        }
+      });
+
+      const [flashcardsData, setFlashcardsData] = useState(() => {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY_FLASHCARDS);
+          return saved ? JSON.parse(saved) : initialFlashcardsData;
+        } catch (e) {
+          return initialFlashcardsData;
+        }
+      });
+
       const [activeTab, setActiveTab] = useState("general");
       const [searchTerm, setSearchTerm] = useState("");
       const [darkMode, setDarkMode] = useState(false);
@@ -550,20 +549,123 @@
       // Rank Badge Interactive Simulator State
       const [badgeCategory, setBadgeCategory] = useState("الأفواج والوحدات");
 
-      // Dark Mode toggle effect
-      useEffect(() => {
-        if (darkMode) {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
+      // Edit dashboard active sub-tab
+      const [editSubTab, setEditSubTab] = useState("sections");
+      const [selectedGroup, setSelectedGroup] = useState("general");
+      const [editingSecIndex, setEditingSecIndex] = useState(0);
+
+      // Drag and drop image upload state
+      const [dragActive, setDragActive] = useState(false);
+      const fileInputRef = useRef(null);
+
+      // Flashcard editing state
+      const [newFc, setNewFc] = useState({ cat: "general", q: "", a: "" });
+
+      // Save to localStorage wrapper
+      const updateScoutData = (newData) => {
+        setScoutData(newData);
+        try { localStorage.setItem(STORAGE_KEY_SCOUT, JSON.stringify(newData)); } catch(e){}
+      };
+
+      const updateFlashcardsData = (newData) => {
+        setFlashcardsData(newData);
+        try { localStorage.setItem(STORAGE_KEY_FLASHCARDS, JSON.stringify(newData)); } catch(e){}
+      };
+
+      const resetToDefaults = () => {
+        if (confirm("هل أنت تأكد من إعادة تعيين جميع البيانات والصور إلى البيانات الافتراضية؟")) {
+          setScoutData(initialScoutData);
+          setFlashcardsData(initialFlashcardsData);
+          localStorage.removeItem(STORAGE_KEY_SCOUT);
+          localStorage.removeItem(STORAGE_KEY_FLASHCARDS);
+          alert("تمت إعادة التعيين بنجاح!");
         }
-      }, [darkMode]);
+      };
+
+      const exportJSON = () => {
+        const payload = JSON.stringify({ scoutData, flashcardsData }, null, 2);
+        const blob = new Blob([payload], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "scout_website_backup.json";
+        a.click();
+      };
+
+      const importJSON = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = JSON.parse(event.target.result);
+            if (data.scoutData) updateScoutData(data.scoutData);
+            if (data.flashcardsData) updateFlashcardsData(data.flashcardsData);
+            alert("تم استيراد البيانات بنجاح!");
+          } catch(err) {
+            alert("خطأ في قراءة ملف JSON!");
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      // Hash route handler for /edit
+      useEffect(() => {
+        const checkHash = () => {
+          if (window.location.hash === '#edit' || window.location.hash === '#/edit') {
+            setActiveTab('edit');
+          }
+        };
+        checkHash();
+        window.addEventListener('hashchange', checkHash);
+        return () => window.removeEventListener('hashchange', checkHash);
+      }, []);
+
+      const handleTabChange = (key) => {
+        setActiveTab(key);
+        setSearchTerm("");
+        if (key === 'edit') {
+          window.location.hash = 'edit';
+        } else {
+          if (window.location.hash === '#edit' || window.location.hash === '#/edit') {
+            window.location.hash = '';
+          }
+        }
+      };
+
+      // Handle Image Drag & Drop File Upload
+      const handleImageFiles = (files, groupKey, secIndex) => {
+        const file = files[0];
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+          alert("يرجى تحميل صورة فقط (PNG, JPG, WebP, SVG)");
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataUrl = e.target.result;
+          const gKey = groupKey || selectedGroup;
+          const sIdx = (secIndex !== undefined && secIndex !== null) ? secIndex : editingSecIndex;
+          
+          if (!scoutData[gKey] || !scoutData[gKey].sections[sIdx]) {
+            alert("يرجى اختيار القسم المراد ربط الصورة به أولاً");
+            return;
+          }
+
+          const updated = JSON.parse(JSON.stringify(scoutData));
+          updated[gKey].sections[sIdx].image = dataUrl;
+          updateScoutData(updated);
+          alert("تم رفع الصورة وربطها بالقسم بنجاح!");
+        };
+        reader.readAsDataURL(file);
+      };
 
       // Filtered flashcards
       const filteredFlashcards = useMemo(() => {
         if (flashcardFilter === "all") return flashcardsData;
         return flashcardsData.filter(card => card.cat === flashcardFilter);
-      }, [flashcardFilter]);
+      }, [flashcardFilter, flashcardsData]);
 
       const activeCard = filteredFlashcards[currentCardIndex] || filteredFlashcards[0];
 
@@ -584,6 +686,15 @@
           setMasteredCards([...masteredCards, cardId]);
         }
       };
+
+      // Dark Mode toggle effect
+      useEffect(() => {
+        if (darkMode) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }, [darkMode]);
 
       return (
         <div className="min-h-screen flex flex-col md:flex-row bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-amiri">
@@ -611,9 +722,9 @@
                   return (
                     <button
                       key={key}
-                      onClick={() => { setActiveTab(key); setSearchTerm(""); }}
+                      onClick={() => handleTabChange(key)}
                       className={`w-full flex items-center space-x-3 space-x-reverse px-4 py-3 rounded-xl transition-all duration-200 text-base font-bold ${
-                        isActive
+                        isActive 
                           ? `${isRover ? 'bg-red-700 shadow-red-900/50' : item.badgeColor} text-white shadow-lg transform -translate-x-1`
                           : isRover
                           ? "text-red-400 hover:bg-red-950/40 hover:text-red-300"
@@ -628,7 +739,7 @@
 
                 {/* Flashcards Nav Button */}
                 <button
-                  onClick={() => setActiveTab("flashcards")}
+                  onClick={() => handleTabChange("flashcards")}
                   className={`w-full flex items-center space-x-3 space-x-reverse px-4 py-3 rounded-xl transition-all duration-200 text-base font-bold mt-4 border border-amber-500/40 ${
                     activeTab === "flashcards"
                       ? "bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 font-black shadow-lg"
@@ -657,7 +768,7 @@
           {/* MAIN CONTENT AREA */}
           <main className="flex-1 p-4 md:p-8 overflow-y-auto">
             
-            {/* Top Header & Search Bar */}
+            {/* Top Header & Bar */}
             <div className="mb-8 flex flex-col md:flex-row items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
               <div className="relative w-full md:w-96">
                 <i className="fa-solid fa-magnifying-glass absolute right-4 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
@@ -677,10 +788,763 @@
                 <span className="px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">🟢 كشافة</span>
                 <span className="px-3 py-1.5 rounded-lg bg-red-600 text-white shadow-md font-extrabold animate-pulse">🔴 الجوالة والرائدات</span>
               </div>
+
+              {/* Action Toolbar - Only visible inside /edit mode */}
+              {activeTab === 'edit' && (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleTabChange('general')}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-cairo font-bold shadow-md transition flex items-center gap-2 border border-slate-700"
+                  >
+                    <i className="fa-solid fa-arrow-right"></i>
+                    <span>العودة للمعاينة الرئيسية</span>
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* CONDITIONAL RENDER: FLASHCARDS PAGE OR SECTION CONTENT */}
-            {activeTab === "flashcards" ? (
+            {/* ========================================================================= */}
+            {/* VIEW 1: DEDICATED EDIT DASHBOARD (/edit) */}
+            {/* ========================================================================= */}
+            {activeTab === "edit" && (
+              <div className="space-y-8 animate-fadeIn">
+                
+                {/* Editor Header Card */}
+                <div className="bg-gradient-to-r from-slate-900 via-rose-950 to-slate-900 text-white p-6 rounded-3xl shadow-2xl border border-rose-900/50">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <span className="inline-block bg-rose-600 text-white text-xs font-cairo px-3 py-1 rounded-full font-bold mb-2">
+                        ✏️ لوحة التعديل والتحرير الشاملة (/edit)
+                      </span>
+                      <h3 className="text-2xl font-black">إدارة وتعديل محتوى الموقع بالكامل</h3>
+                      <p className="text-slate-300 text-xs font-cairo mt-1">
+                        يمكنك الآن تعديل الرتب الكشفية، النداءات، الوعد والقانون، النصوص، الصور، وبنك الأسئلة بسهولة ومباشرة.
+                      </p>
+                    </div>
+
+                    {/* Data Management Action Buttons */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={exportJSON}
+                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-cairo font-bold border border-slate-700 transition flex items-center gap-1.5"
+                      >
+                        <i className="fa-solid fa-download text-emerald-400"></i>
+                        <span>تصدير ملف JSON</span>
+                      </button>
+
+                      <label className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-cairo font-bold border border-slate-700 cursor-pointer transition flex items-center gap-1.5">
+                        <i className="fa-solid fa-upload text-blue-400"></i>
+                        <span>استيراد JSON</span>
+                        <input type="file" accept=".json" onChange={importJSON} className="hidden" />
+                      </label>
+
+                      <button
+                        onClick={resetToDefaults}
+                        className="px-3 py-2 bg-rose-950 hover:bg-rose-900 text-rose-200 rounded-xl text-xs font-cairo font-bold border border-rose-800 transition flex items-center gap-1.5"
+                      >
+                        <i className="fa-solid fa-arrow-rotate-left"></i>
+                        <span>إعادة ضبط الافتراضي</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sub-tabs selection */}
+                  <div className="flex flex-wrap border-t border-slate-800 mt-6 pt-4 gap-2">
+                    <button
+                      onClick={() => setEditSubTab("sections")}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold font-cairo transition ${
+                        editSubTab === "sections" 
+                          ? "bg-rose-600 text-white shadow-md" 
+                          : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      <i className="fa-solid fa-file-pen ml-2"></i>
+                      تعديل المحتوى والأقسام
+                    </button>
+
+                    <button
+                      onClick={() => setEditSubTab("badges")}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold font-cairo transition ${
+                        editSubTab === "badges" 
+                          ? "bg-amber-600 text-slate-950 font-black shadow-md" 
+                          : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      <i className="fa-solid fa-id-badge ml-2"></i>
+                      تعديل الرتب والشارات الكشفية 🎖️
+                    </button>
+
+                    <button
+                      onClick={() => setEditSubTab("flashcards")}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold font-cairo transition ${
+                        editSubTab === "flashcards" 
+                          ? "bg-indigo-600 text-white shadow-md" 
+                          : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      <i className="fa-solid fa-graduation-cap ml-2"></i>
+                      تعديل الأسئلة والبطاقات
+                    </button>
+
+                    <button
+                      onClick={() => setEditSubTab("images")}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold font-cairo transition ${
+                        editSubTab === "images" 
+                          ? "bg-emerald-600 text-white shadow-md" 
+                          : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      <i className="fa-solid fa-image ml-2"></i>
+                      رفع وإدارة الصور (Drag & Drop)
+                    </button>
+                  </div>
+                </div>
+
+                {/* SUB TAB 1: SECTIONS & CONTENT EDITOR */}
+                {editSubTab === "sections" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* Left Panel: Group & Section Selector */}
+                    <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                      <h4 className="font-bold text-lg text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-3">
+                        اختر القسم للتعديل
+                      </h4>
+
+                      <div className="space-y-2">
+                        {Object.keys(scoutData).map((gKey) => {
+                          const grp = scoutData[gKey];
+                          const isSelected = selectedGroup === gKey;
+                          return (
+                            <button
+                              key={gKey}
+                              onClick={() => { setSelectedGroup(gKey); setEditingSecIndex(0); }}
+                              className={`w-full text-right p-3 rounded-2xl transition font-cairo font-bold text-sm flex items-center justify-between border ${
+                                isSelected 
+                                  ? "bg-rose-500/10 border-rose-500 text-rose-600 dark:text-rose-400" 
+                                  : "border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2">
+                                <i className={`fa-solid ${grp.icon}`}></i>
+                                <span>{grp.title}</span>
+                              </span>
+                              <span className="text-xs bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                                {grp.sections.length} قسم
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Add new section button */}
+                      <button
+                        onClick={() => {
+                          const updated = JSON.parse(JSON.stringify(scoutData));
+                          const newSec = {
+                            id: `sec-${Date.now()}`,
+                            title: "عنوان قسم جديد",
+                            content: "اكتب النص التفصيلي للقسم الجديد هنا..."
+                          };
+                          updated[selectedGroup].sections.push(newSec);
+                          updateScoutData(updated);
+                          setEditingSecIndex(updated[selectedGroup].sections.length - 1);
+                        }}
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-cairo font-bold text-sm shadow-md transition flex items-center justify-center gap-2"
+                      >
+                        <i className="fa-solid fa-plus"></i>
+                        <span>إضافة قسم جديد لـ {scoutData[selectedGroup].title}</span>
+                      </button>
+                    </div>
+
+                    {/* Right Panel: Active Section Editor Form */}
+                    <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+                      
+                      {/* Section tabs inside active group */}
+                      <div className="flex flex-wrap gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
+                        {scoutData[selectedGroup].sections.map((sec, idx) => (
+                          <button
+                            key={sec.id || idx}
+                            onClick={() => setEditingSecIndex(idx)}
+                            className={`px-3 py-1.5 rounded-xl font-cairo text-xs font-bold transition border ${
+                              editingSecIndex === idx
+                                ? "bg-rose-600 text-white border-rose-600 shadow-sm"
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                            }`}
+                          >
+                            {sec.title || `قسم ${idx + 1}`}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Editing active section details */}
+                      {scoutData[selectedGroup].sections[editingSecIndex] && (() => {
+                        const activeSec = scoutData[selectedGroup].sections[editingSecIndex];
+
+                        const handleSecChange = (field, value) => {
+                          const updated = JSON.parse(JSON.stringify(scoutData));
+                          updated[selectedGroup].sections[editingSecIndex][field] = value;
+                          updateScoutData(updated);
+                        };
+
+                        const deleteCurrentSection = () => {
+                          if (confirm(`هل أنت تأكد من حذف القسم "${activeSec.title}"؟`)) {
+                            const updated = JSON.parse(JSON.stringify(scoutData));
+                            updated[selectedGroup].sections.splice(editingSecIndex, 1);
+                            updateScoutData(updated);
+                            setEditingSecIndex(0);
+                          }
+                        };
+
+                        return (
+                          <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                              <h4 className="font-black text-xl text-slate-900 dark:text-white">
+                                تحرير: {activeSec.title}
+                              </h4>
+                              <button
+                                onClick={deleteCurrentSection}
+                                className="px-3 py-1.5 bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-300 rounded-xl text-xs font-cairo font-bold hover:bg-red-200 transition flex items-center gap-1 border border-red-300"
+                              >
+                                <i className="fa-solid fa-trash"></i>
+                                <span>حذف هذا القسم</span>
+                              </button>
+                            </div>
+
+                            {/* Section Title Input */}
+                            <div>
+                              <label className="block text-xs font-cairo font-bold text-slate-600 dark:text-slate-400 mb-2">
+                                عنوان القسم
+                              </label>
+                              <input
+                                type="text"
+                                value={activeSec.title || ""}
+                                onChange={(e) => handleSecChange("title", e.target.value)}
+                                className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-bold text-base text-slate-900 dark:text-white focus:ring-2 focus:ring-rose-500 outline-none"
+                              />
+                            </div>
+
+                            {/* Section Content Textarea */}
+                            <div>
+                              <label className="block text-xs font-cairo font-bold text-slate-600 dark:text-slate-400 mb-2">
+                                نص الشرح / النص التفصيلي
+                              </label>
+                              <textarea
+                                rows={6}
+                                value={activeSec.content || ""}
+                                onChange={(e) => handleSecChange("content", e.target.value)}
+                                className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-base text-slate-900 dark:text-white leading-relaxed focus:ring-2 focus:ring-rose-500 outline-none font-amiri"
+                              />
+                            </div>
+
+                            {/* Image Attachment Preview */}
+                            <div>
+                              <label className="block text-xs font-cairo font-bold text-slate-600 dark:text-slate-400 mb-2">
+                                صورة القسم التوضيحية
+                              </label>
+                              {activeSec.image ? (
+                                <div className="relative group rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700 max-h-60 mb-3">
+                                  <img src={activeSec.image} alt="معاينة" className="w-full h-48 object-cover" />
+                                  <button
+                                    onClick={() => handleSecChange("image", null)}
+                                    className="absolute top-2 right-2 bg-red-600 text-white p-2 rounded-xl text-xs font-cairo shadow-lg hover:bg-red-700 transition"
+                                  >
+                                    إزالة الصورة 🗑️
+                                  </button>
+                                </div>
+                              ) : (
+                                <div 
+                                  onClick={() => handleImageFiles(fileInputRef.current.files, selectedGroup, editingSecIndex)}
+                                  className="p-6 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl text-center bg-slate-50 dark:bg-slate-800/50 hover:bg-rose-500/5 transition cursor-pointer"
+                                >
+                                  <i className="fa-solid fa-cloud-arrow-up text-3xl text-rose-500 mb-2"></i>
+                                  <p className="text-sm font-cairo font-bold text-slate-700 dark:text-slate-300">
+                                    اسحب صورة هنا أو انقر لتحميل صورة جديدة لهذا القسم
+                                  </p>
+                                  <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    onChange={(e) => handleImageFiles(e.target.files, selectedGroup, editingSecIndex)}
+                                    className="hidden" 
+                                    ref={fileInputRef}
+                                  />
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Section Items List (if available) */}
+                            {Array.isArray(activeSec.items) && (
+                              <div className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-xs font-cairo font-bold text-slate-600 dark:text-slate-400">
+                                    قائمة النقاط والبنود ({activeSec.items.length})
+                                  </label>
+                                  <button
+                                    onClick={() => {
+                                      const updated = JSON.parse(JSON.stringify(scoutData));
+                                      updated[selectedGroup].sections[editingSecIndex].items.push("بند جديد...");
+                                      updateScoutData(updated);
+                                    }}
+                                    className="text-xs text-emerald-600 font-bold font-cairo hover:underline"
+                                  >
+                                    + إضافة بند جديد
+                                  </button>
+                                </div>
+
+                                {activeSec.items.map((item, iIdx) => (
+                                  <div key={iIdx} className="flex gap-2 items-center">
+                                    <input
+                                      type="text"
+                                      value={item}
+                                      onChange={(e) => {
+                                        const updated = JSON.parse(JSON.stringify(scoutData));
+                                        updated[selectedGroup].sections[editingSecIndex].items[iIdx] = e.target.value;
+                                        updateScoutData(updated);
+                                      }}
+                                      className="flex-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-rose-500"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const updated = JSON.parse(JSON.stringify(scoutData));
+                                        updated[selectedGroup].sections[editingSecIndex].items.splice(iIdx, 1);
+                                        updateScoutData(updated);
+                                      }}
+                                      className="p-2 text-red-500 hover:bg-red-500/10 rounded-xl transition"
+                                    >
+                                      <i className="fa-solid fa-xmark"></i>
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Formations Editor (if available) */}
+                            {Array.isArray(activeSec.formations) && (
+                              <div className="space-y-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-xs font-cairo font-bold text-slate-600 dark:text-slate-400">
+                                    النداءات والتشكيلات الكشفية ({activeSec.formations.length})
+                                  </label>
+                                  <button
+                                    onClick={() => {
+                                      const updated = JSON.parse(JSON.stringify(scoutData));
+                                      updated[selectedGroup].sections[editingSecIndex].formations.push({
+                                        name: "تشكيل جديد",
+                                        gesture: "حركة اليدين",
+                                        desc: "شرح التشكيل..."
+                                      });
+                                      updateScoutData(updated);
+                                    }}
+                                    className="text-xs text-emerald-600 font-bold font-cairo hover:underline"
+                                  >
+                                    + إضافة تشكيل جديد
+                                  </button>
+                                </div>
+
+                                {activeSec.formations.map((fItem, fIdx) => (
+                                  <div key={fIdx} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2 relative">
+                                    <button
+                                      onClick={() => {
+                                        const updated = JSON.parse(JSON.stringify(scoutData));
+                                        updated[selectedGroup].sections[editingSecIndex].formations.splice(fIdx, 1);
+                                        updateScoutData(updated);
+                                      }}
+                                      className="absolute top-2 left-2 text-red-500 hover:bg-red-500/10 p-1.5 rounded-lg text-xs"
+                                    >
+                                      حذف 🗑️
+                                    </button>
+
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="block text-[10px] font-cairo text-slate-500">اسم التشكيل</label>
+                                        <input
+                                          type="text"
+                                          value={fItem.name}
+                                          onChange={(e) => {
+                                            const updated = JSON.parse(JSON.stringify(scoutData));
+                                            updated[selectedGroup].sections[editingSecIndex].formations[fIdx].name = e.target.value;
+                                            updateScoutData(updated);
+                                          }}
+                                          className="w-full p-2 rounded-xl bg-white dark:bg-slate-900 border text-xs font-bold"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-[10px] font-cairo text-slate-500">إشارة وحركة اليد</label>
+                                        <input
+                                          type="text"
+                                          value={fItem.gesture}
+                                          onChange={(e) => {
+                                            const updated = JSON.parse(JSON.stringify(scoutData));
+                                            updated[selectedGroup].sections[editingSecIndex].formations[fIdx].gesture = e.target.value;
+                                            updateScoutData(updated);
+                                          }}
+                                          className="w-full p-2 rounded-xl bg-white dark:bg-slate-900 border text-xs font-bold text-red-600"
+                                        />
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-cairo text-slate-500">شرح التمركز والتطبيق</label>
+                                      <input
+                                        type="text"
+                                        value={fItem.desc}
+                                        onChange={(e) => {
+                                          const updated = JSON.parse(JSON.stringify(scoutData));
+                                          updated[selectedGroup].sections[editingSecIndex].formations[fIdx].desc = e.target.value;
+                                          updateScoutData(updated);
+                                        }}
+                                        className="w-full p-2 rounded-xl bg-white dark:bg-slate-900 border text-xs"
+                                      />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB TAB 2: RANK BADGES EDITOR (تعديل الرتب الكشفية) */}
+                {editSubTab === "badges" && (() => {
+                  const rankSec = scoutData.info.sections.find(s => s.id === "rank-badges-rules");
+
+                  if (!rankSec || !Array.isArray(rankSec.badgesData)) {
+                    return <div className="p-8 text-center text-slate-500 font-cairo">قسم الرتب الكشفية غير موجود</div>;
+                  }
+
+                  const handleBadgeChange = (bIdx, field, val) => {
+                    const updated = JSON.parse(JSON.stringify(scoutData));
+                    const targetSec = updated.info.sections.find(s => s.id === "rank-badges-rules");
+                    targetSec.badgesData[bIdx][field] = val;
+                    updateScoutData(updated);
+                  };
+
+                  const addNewBadge = () => {
+                    const updated = JSON.parse(JSON.stringify(scoutData));
+                    const targetSec = updated.info.sections.find(s => s.id === "rank-badges-rules");
+                    targetSec.badgesData.push({
+                      category: badgeCategory,
+                      name: "رتبة جديدة",
+                      detail: "شرح تفاصيل الرتبة...",
+                      bg: "bg-red-600 text-white"
+                    });
+                    updateScoutData(updated);
+                  };
+
+                  const deleteBadge = (bIdx) => {
+                    if (confirm("حذف هذه الرتبة؟")) {
+                      const updated = JSON.parse(JSON.stringify(scoutData));
+                      const targetSec = updated.info.sections.find(s => s.id === "rank-badges-rules");
+                      targetSec.badgesData.splice(bIdx, 1);
+                      updateScoutData(updated);
+                    }
+                  };
+
+                  return (
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+                      
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                        <div>
+                          <h4 className="font-black text-2xl text-slate-900 dark:text-white flex items-center gap-2">
+                            <span>🎖️ مُحرّر الشارات والرتب الكشفية</span>
+                          </h4>
+                          <p className="text-xs text-slate-500 font-cairo mt-1">
+                            تعديل أسماء الرتب والمسؤوليات، الألوان، والتفاصيل لجميع الهيئات والأفواج.
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={addNewBadge}
+                          className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-xs font-cairo shadow-md transition flex items-center gap-2"
+                        >
+                          <i className="fa-solid fa-plus"></i>
+                          <span>إضافة رتبة جديدة لـ ({badgeCategory})</span>
+                        </button>
+                      </div>
+
+                      {/* Category Switcher Tabs */}
+                      <div className="flex gap-2 font-cairo">
+                        {["الهيئة الإدارية", "المفوضية العامة", "الأفواج والوحدات"].map(cat => (
+                          <button
+                            key={cat}
+                            onClick={() => setBadgeCategory(cat)}
+                            className={`px-4 py-2 rounded-2xl text-xs font-bold transition border ${
+                              badgeCategory === cat 
+                                ? "bg-red-600 text-white border-red-600 shadow" 
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                            }`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Badges List Editor */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {rankSec.badgesData.map((badge, bIdx) => {
+                          if (badge.category !== badgeCategory) return null;
+
+                          return (
+                            <div key={bIdx} className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 space-y-3 relative">
+                              <button
+                                onClick={() => deleteBadge(bIdx)}
+                                className="absolute top-3 left-3 text-red-500 hover:bg-red-500/10 p-1.5 rounded-lg text-xs"
+                                title="حذف الرتبة"
+                              >
+                                <i className="fa-solid fa-trash"></i>
+                              </button>
+
+                              {/* Badge Color Preview */}
+                              <div className="flex items-center gap-3">
+                                <div className={`w-12 h-12 rounded-2xl ${badge.bg} flex items-center justify-center font-bold text-[10px] shadow-sm text-center p-1 font-cairo flex-shrink-0`}>
+                                  شارة
+                                </div>
+                                <div className="flex-1">
+                                  <label className="block text-[10px] font-cairo text-slate-500">اسم المسمّى / الرتبة</label>
+                                  <input
+                                    type="text"
+                                    value={badge.name}
+                                    onChange={(e) => handleBadgeChange(bIdx, "name", e.target.value)}
+                                    className="w-full p-2 rounded-xl bg-white dark:bg-slate-900 border text-sm font-bold text-slate-900 dark:text-white"
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-cairo text-slate-500">الشرح والتفاصيل اللونية</label>
+                                <input
+                                  type="text"
+                                  value={badge.detail}
+                                  onChange={(e) => handleBadgeChange(bIdx, "detail", e.target.value)}
+                                  className="w-full p-2 rounded-xl bg-white dark:bg-slate-900 border text-xs"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-cairo text-slate-500">كلاس تنسيق اللون (Tailwind CSS)</label>
+                                <input
+                                  type="text"
+                                  value={badge.bg}
+                                  onChange={(e) => handleBadgeChange(bIdx, "bg", e.target.value)}
+                                  className="w-full p-2 rounded-xl bg-white dark:bg-slate-900 border text-xs font-mono"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                    </div>
+                  );
+                })()}
+
+                {/* SUB TAB 3: FLASHCARDS EDITOR */}
+                {editSubTab === "flashcards" && (
+                  <div className="space-y-6">
+                    {/* Add new flashcard form */}
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                      <h4 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
+                        <i className="fa-solid fa-plus-circle text-amber-500"></i>
+                        إضافة بطاقة تسميع جديدة
+                      </h4>
+
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <div>
+                          <label className="block text-xs font-cairo text-slate-500 mb-1">الفئة</label>
+                          <select
+                            value={newFc.cat}
+                            onChange={(e) => setNewFc({ ...newFc, cat: e.target.value })}
+                            className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm font-cairo font-bold"
+                          >
+                            <option value="general">معلومات عامة</option>
+                            <option value="info">معلومات أساسية</option>
+                            <option value="rovers">الجوالة والرائدات</option>
+                            <option value="beavers">القنادس</option>
+                            <option value="cubs">الأشبال والزهرات</option>
+                            <option value="scouts">الكشافة والمرشدات</option>
+                          </select>
+                        </div>
+
+                        <div className="md:col-span-3">
+                          <label className="block text-xs font-cairo text-slate-500 mb-1">السؤال</label>
+                          <input
+                            type="text"
+                            placeholder="اكتب السؤال الكشفي هنا..."
+                            value={newFc.q}
+                            onChange={(e) => setNewFc({ ...newFc, q: e.target.value })}
+                            className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm font-bold"
+                          />
+                        </div>
+
+                        <div className="md:col-span-4">
+                          <label className="block text-xs font-cairo text-slate-500 mb-1">الإجابة النموذجية</label>
+                          <textarea
+                            rows={2}
+                            placeholder="اكتب الإجابة النموذجية هنا..."
+                            value={newFc.a}
+                            onChange={(e) => setNewFc({ ...newFc, a: e.target.value })}
+                            className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (!newFc.q || !newFc.a) { alert("يرجى كتابة السؤال والإجابة"); return; }
+                          const updated = [...flashcardsData, { id: Date.now(), ...newFc }];
+                          updateFlashcardsData(updated);
+                          setNewFc({ cat: "general", q: "", a: "" });
+                          alert("تم إضافة البطاقة بنجاح!");
+                        }}
+                        className="px-6 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-sm font-cairo shadow-md transition"
+                      >
+                        حفظ وإضافة البطاقة
+                      </button>
+                    </div>
+
+                    {/* Existing flashcards list */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {flashcardsData.map((fc, idx) => (
+                        <div key={fc.id || idx} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 relative">
+                          <button
+                            onClick={() => {
+                              if (confirm("حذف هذه البطاقة؟")) {
+                                const updated = flashcardsData.filter(c => c.id !== fc.id);
+                                updateFlashcardsData(updated);
+                              }
+                            }}
+                            className="absolute top-3 left-3 text-red-500 hover:bg-red-500/10 p-2 rounded-xl text-xs"
+                          >
+                            <i className="fa-solid fa-trash"></i>
+                          </button>
+
+                          <div className="text-xs font-cairo text-amber-500 font-bold">
+                            بطاقة رقم {idx + 1} ({fc.cat})
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-cairo text-slate-500">السؤال</label>
+                            <input
+                              type="text"
+                              value={fc.q}
+                              onChange={(e) => {
+                                const updated = [...flashcardsData];
+                                updated[idx].q = e.target.value;
+                                updateFlashcardsData(updated);
+                              }}
+                              className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm font-bold"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-cairo text-slate-500">الإجابة</label>
+                            <textarea
+                              rows={2}
+                              value={fc.a}
+                              onChange={(e) => {
+                                const updated = [...flashcardsData];
+                                updated[idx].a = e.target.value;
+                                updateFlashcardsData(updated);
+                              }}
+                              className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB TAB 4: DRAG & DROP IMAGE UPLOADER */}
+                {editSubTab === "images" && (
+                  <div className="space-y-6">
+                    <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 text-center">
+                      <h4 className="font-black text-2xl text-slate-900 dark:text-white">
+                        مركز رفع وإدارة الصور المباشرة (Drag & Drop)
+                      </h4>
+                      <p className="text-slate-500 text-sm font-cairo max-w-lg mx-auto">
+                        يمكنك سحب وإسقاط أي صورة من جهازك هنا لربطها فوراً بأحد أقسام الموقع الكشفي.
+                      </p>
+
+                      {/* Select target group and section */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-xl mx-auto text-right">
+                        <div>
+                          <label className="block text-xs font-cairo font-bold text-slate-500 mb-1">المجموعة الكشفية</label>
+                          <select
+                            value={selectedGroup}
+                            onChange={(e) => { setSelectedGroup(e.target.value); setEditingSecIndex(0); }}
+                            className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm font-cairo font-bold"
+                          >
+                            {Object.keys(scoutData).map(k => (
+                              <option key={k} value={k}>{scoutData[k].title}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-cairo font-bold text-slate-500 mb-1">القسم المستهدف</label>
+                          <select
+                            value={editingSecIndex}
+                            onChange={(e) => setEditingSecIndex(Number(e.target.value))}
+                            className="w-full p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm font-cairo font-bold"
+                          >
+                            {scoutData[selectedGroup].sections.map((s, idx) => (
+                              <option key={s.id || idx} value={idx}>{s.title}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Universal Drag and Drop Zone */}
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                        onDragLeave={() => setDragActive(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setDragActive(false);
+                          if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                            handleImageFiles(e.dataTransfer.files, selectedGroup, editingSecIndex);
+                          }
+                        }}
+                        className={`p-12 border-4 border-dashed rounded-3xl transition-all cursor-pointer ${
+                          dragActive 
+                            ? "border-emerald-500 bg-emerald-500/10 scale-102" 
+                            : "border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <i className="fa-solid fa-cloud-arrow-up text-5xl text-emerald-500 mb-4 animate-bounce"></i>
+                        <h5 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
+                          اسحب وإسقط الصور هنا الآن
+                        </h5>
+                        <p className="text-xs text-slate-500 font-cairo mb-4">
+                          أو انقر هنا لتصفح واختيار الصور من الكمبيوتر (PNG, JPG, WebP)
+                        </p>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleImageFiles(e.target.files, selectedGroup, editingSecIndex)}
+                          className="hidden"
+                          id="dragDropInput"
+                        />
+                        <label
+                          htmlFor="dragDropInput"
+                          className="inline-block px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-cairo font-bold shadow-lg transition cursor-pointer"
+                        >
+                          اختر صورة من الجهاز
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* VIEW 2: FLASHCARDS INTERACTIVE QUIZ & MEMORIZATION */}
+            {/* ========================================================================= */}
+            {activeTab === "flashcards" && (
               <div className="max-w-4xl mx-auto">
                 <div className="mb-6 text-center">
                   <h2 className="text-3xl md:text-4xl font-bold text-amber-600 dark:text-amber-400 mb-2">
@@ -789,9 +1653,12 @@
                   <p className="text-center text-slate-500">لا توجد بطاقات في هذا القسم حالياً.</p>
                 )}
               </div>
-            ) : (
-              
-              /* STANDARD SECTION DISPLAY - WORD DOCUMENT STYLE */
+            )}
+
+            {/* ========================================================================= */}
+            {/* VIEW 3: STANDARD GROUP SECTION DISPLAY */}
+            {/* ========================================================================= */}
+            {activeTab !== "flashcards" && activeTab !== "edit" && (
               <div>
                 {scoutData[activeTab] && (
                   <div>
@@ -845,6 +1712,13 @@
                                 ✋
                               </div>
                               <p className="text-sm font-bold font-cairo text-red-700 dark:text-red-400">التحية الكشفية باليد اليمنى والمصافحة باليد اليسرى</p>
+                            </div>
+                          )}
+
+                          {/* Image inside section if attached */}
+                          {sec.image && (
+                            <div className="my-6 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-lg">
+                              <img src={sec.image} alt={sec.title} className="w-full max-h-96 object-cover" />
                             </div>
                           )}
 
